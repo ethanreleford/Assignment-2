@@ -1,111 +1,115 @@
 #include <iostream>
 #include <thread>
 #include <mutex>
-#include <condition_variable>
+#include <vector>
 #include <chrono>
 
-class MinotaurLabyrinth
+std::mutex mtx;
+int guests_visited = 0; // Number of guests visited
+const int N = 5;       // Number of guests
+int cupcakes_left = 1; // Initial cupcakes left at the exit
+
+void visitLabyrinth(int guest_id)
 {
-private:
-    int guests;
-    std::mutex mtx;
+    // Simulate guest visiting labyrinth
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
-public:
-    MinotaurLabyrinth(int numGuests) : guests(numGuests) {}
+    // Each guest announces their visit
+    std::lock_guard<std::mutex> lock(mtx);
+    std::cout << "Guest " << guest_id << " visited the labyrinth." << std::endl;
 
-    void enterLabyrinth(int guestId)
+    // Check if cupcake is available
+    if (cupcakes_left > 0)
     {
-        std::unique_lock<std::mutex> lock(mtx);
-        guests--;
-        std::cout << "Guest " << guestId << " entered the labyrinth." << std::endl;
-        if (guests == 0)
-        {
-            std::cout << "All guests have visited the labyrinth." << std::endl;
-        }
+        std::cout << "Guest " << guest_id << " found a cupcake and ate it." << std::endl;
+        cupcakes_left--;
     }
-};
-//adasdasdasdada
-class Guest
-{
-private:
-    int id;
-    MinotaurLabyrinth &labyrinth;
-
-public:
-    Guest(int guestId, MinotaurLabyrinth &l) : id(guestId), labyrinth(l) {}
-
-    void operator()()
+    else
     {
-        labyrinth.enterLabyrinth(id);
+        std::cout << "Guest " << guest_id << " found no cupcake." << std::endl;
     }
-};
+
+    guests_visited++;
+}
 
 class Showroom
 {
 private:
     bool available;
     std::mutex mtx;
-    std::condition_variable cv;
 
 public:
     Showroom() : available(true) {}
 
-    void enterShowroom(int guestId)
+    void enterShowroom(int guestID)
     {
         std::unique_lock<std::mutex> lock(mtx);
-        cv.wait(lock, [this]()
-                { return available; });
+        while (!available)
+        {
+            std::cout << "Guest " << guestID << " is waiting. Showroom is busy." << std::endl;
+            // Guest has to come back and check again later
+            lock.unlock();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            lock.lock();
+        }
+        std::cout << "Guest " << guestID << " is entering the showroom." << std::endl;
         available = false;
-        std::cout << "Guest " << guestId << " entered the showroom." << std::endl;
     }
 
-    void exitShowroom(int guestId)
+    void exitShowroom(int guestID)
     {
         std::unique_lock<std::mutex> lock(mtx);
-        std::cout << "Guest " << guestId << " exited the showroom." << std::endl;
+        std::cout << "Guest " << guestID << " is exiting the showroom." << std::endl;
         available = true;
-        cv.notify_one();
     }
 };
 
-class Guest2
+void guest(Showroom &showroom, int guestID)
 {
-private:
-    int id;
-    Showroom &showroom;
-
-public:
-    Guest2(int guestId, Showroom &s) : id(guestId), showroom(s) {}
-
-    void operator()()
-    {
-        showroom.enterShowroom(id);
-        std::this_thread::sleep_for(std::chrono::seconds(2)); // Simulating guest spending some time in the showroom
-        showroom.exitShowroom(id);
-    }
-};
+    showroom.enterShowroom(guestID);
+    // Guest is in the showroom
+    std::this_thread::sleep_for(std::chrono::seconds(3)); // Viewing the vase for 3 seconds
+    showroom.exitShowroom(guestID);
+}
 
 int main()
 {
-    int numGuests = 5; // Change this to your desired number of guests
-    MinotaurLabyrinth labyrinth(numGuests);
+    std::vector<std::thread> threads;
+
+    // Create threads for each guest
+    for (int i = 1; i <= N; ++i)
+    {
+        threads.emplace_back([i]
+                             { visitLabyrinth(i); });
+    }
+
+    // Join threads
+    for (auto &t : threads)
+    {
+        t.join();
+    }
+
+    // Check if all guests have visited the labyrinth
+    if (guests_visited == N)
+    {
+        std::cout << "All guests have visited the labyrinth at least once." << std::endl;
+    }
+    else
+    {
+        std::cout << "Not all guests have visited the labyrinth." << std::endl;
+    }
+
+
+    const int numGuests = 10; // Specify the number of guests
     Showroom showroom;
+    std::thread guests[numGuests];
 
-    std::thread guests[numGuests * 2]; // Combined number of guests for both problems
-
-    // Problem 1: Minotaur’s Birthday Party
     for (int i = 0; i < numGuests; ++i)
     {
-        guests[i] = std::thread(Guest(i + 1, labyrinth));
+        guests[i] = std::thread(guest, std::ref(showroom), i);
     }
 
-    // Problem 2: Minotaur’s Crystal Vase
     for (int i = 0; i < numGuests; ++i)
-    {
-        guests[i + numGuests] = std::thread(Guest2(i + 1, showroom));
-    }
-
-    for (int i = 0; i < numGuests * 2; ++i)
     {
         guests[i].join();
     }
